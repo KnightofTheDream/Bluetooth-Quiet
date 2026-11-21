@@ -7,9 +7,8 @@
     <string name="status_waiting">Activo · esperando auriculares Bluetooth…</string>
     <string name="status_active">Activo · auriculares Bluetooth conectados</string>
     <string name="volume_value">Volumen Bluetooth: %1$d%%</string>
-    <string name="explanation">Cuando haya auriculares Bluetooth conectados, el volumen del móvil se mantiene al mínimo y los auriculares usan el nivel marcado en la barra, por debajo del mínimo del sistema. Sube o baja el volumen del móvil como siempre: la app lo volverá a ajustar.</string>
+    <string name="explanation">Cuando haya auriculares Bluetooth conectados, el volumen del móvil se mantiene al mínimo y la app aplica una atenuación digital continua marcada en la barra, por debajo del mínimo del sistema: 100% suena con el volumen base y al bajar la barra se oye cada vez menos (0% = silencio). Sube o baja el volumen del móvil como siempre: la app lo volverá a ajustar.</string>
     <string name="notif_active">Activo · reduciendo volumen de los auriculares Bluetooth</string>
     <string name="notif_waiting">Activo · esperando auriculares Bluetooth</string>
-    <string name="notif_no_abs">Auriculares conectados · volumen absoluto no disponible en este móvil</string>
     <string name="notif_stop">Desactivar</string>
 </resources>

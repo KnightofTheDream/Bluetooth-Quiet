@@ -18,6 +18,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -26,8 +27,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import org.lsposed.hiddenapibypass.HiddenApiBypass
-import java.lang.reflect.Method
+import kotlin.math.roundToInt
 
 class VolumeService : Service() {
 
@@ -36,6 +36,7 @@ class VolumeService : Service() {
         const val ACTION_STOP = "com.bluetoothquiet.action.STOP"
         const val ACTION_APPLY = "com.bluetoothquiet.action.APPLY"
 
+        const val DB_PER_PERCENT = 0.3f
         const val CHANNEL_ID = "volume_service"
         const val NOTIFICATION_ID = 1
 
@@ -44,8 +45,7 @@ class VolumeService : Service() {
 
     private var a2dpProxy: BluetoothProfile? = null
     private var proxyConnected = false
-    private var absMethod: Method? = null
-    private var lastAbsOk = true
+    private var enhancer: LoudnessEnhancer? = null
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -79,7 +79,6 @@ class VolumeService : Service() {
             if (profile == BluetoothProfile.A2DP) {
                 a2dpProxy = proxy
                 proxyConnected = true
-                resolveAbsMethod(proxy)
                 tryApply("a2dp_proxy")
             }
         }
@@ -88,7 +87,6 @@ class VolumeService : Service() {
             if (profile == BluetoothProfile.A2DP) {
                 a2dpProxy = null
                 proxyConnected = false
-                absMethod = null
             }
         }
     }
@@ -97,11 +95,6 @@ class VolumeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        try {
-            HiddenApiBypass.addHiddenApiExemptions("L")
-        } catch (t: Throwable) {
-            Log.w(TAG, "hidden api bypass falló: ${t.message}")
-        }
         startForegroundInternal()
 
         bluetoothAdapter()?.getProfileProxy(this, profileListener, BluetoothProfile.A2DP)
@@ -146,7 +139,8 @@ class VolumeService : Service() {
         a2dpProxy?.let { bluetoothAdapter()?.closeProfileProxy(BluetoothProfile.A2DP, it) }
         a2dpProxy = null
         proxyConnected = false
-        absMethod = null
+        enhancer?.release()
+        enhancer = null
         super.onDestroy()
     }
 
@@ -173,24 +167,16 @@ class VolumeService : Service() {
 
         val device = connectedA2dpDevice()
         updateNotification(device != null)
-        if (device == null) return
-
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val scale = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val deviceVolume = ((Prefs.extraPercent(this) * scale) / 100f).toInt().coerceIn(0, scale)
-        enforceStreamTarget(audible = deviceVolume > 0)
-
-        val applied = applyAbsoluteVolume(device, deviceVolume)
-        if (lastAbsOk != applied) {
-            lastAbsOk = applied
-            updateNotification(device != null)
-        }
-        if (!applied) {
-            Log.w(TAG, "volumen absoluto no disponible ($reason); no se toca el volumen del sistema")
-            enforceStreamTarget(audible = true)
+        if (device == null) {
+            setAttenuationDb(0f)
             return
         }
-        Log.d(TAG, "apply ($reason): deviceVolume=$deviceVolume (0-$scale)")
+
+        val percent = Prefs.extraPercent(this)
+        enforceStreamTarget(audible = percent > 0)
+        val db = -(100 - percent) * DB_PER_PERCENT
+        setAttenuationDb(db)
+        Log.d(TAG, "apply ($reason): atenuación=%.1f dB".format(db))
     }
 
     private fun enforceStreamTarget(audible: Boolean) {
@@ -205,53 +191,28 @@ class VolumeService : Service() {
         }
     }
 
-    private fun resolveAbsMethod(proxy: BluetoothProfile) {
-        absMethod = try {
-            proxy.javaClass.getMethod("setAvrcpAbsoluteVolume", Int::class.javaPrimitiveType)
-        } catch (_: NoSuchMethodException) {
-            try {
-                proxy.javaClass.getMethod(
-                    "setAbsoluteVolume",
-                    BluetoothDevice::class.java,
-                    Int::class.javaPrimitiveType
-                )
-            } catch (_: NoSuchMethodException) {
-                null
-            }
-        }
-        Log.i(TAG, "método absoluto: ${absMethod?.name ?: "ninguno"}")
-    }
-
-    private fun applyAbsoluteVolume(device: BluetoothDevice, absolute: Int): Boolean {
-        val proxy = a2dpProxy
-        val method = absMethod
-        if (proxy == null || method == null) return false
-        return try {
-            if (method.parameterCount >= 2) {
-                method.invoke(proxy, device, absolute)
-            } else {
-                method.invoke(proxy, absolute)
-            }
-            true
+    private fun setAttenuationDb(db: Float) {
+        val e = enhancer ?: try {
+            LoudnessEnhancer(0)
         } catch (t: Throwable) {
-            Log.w(TAG, "${method.name} falló: ${t.message}")
-            false
+            Log.w(TAG, "LoudnessEnhancer no disponible: ${t.message}")
+            null
+        } ?: return
+        enhancer = e
+        try {
+            e.setTargetGain((db * 100f).roundToInt())
+        } catch (t: Throwable) {
+            Log.w(TAG, "setTarget falló: ${t.message}")
         }
     }
 
     private fun stopEffect() {
+        setAttenuationDb(0f)
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val min = am.getStreamMinVolume(AudioManager.STREAM_MUSIC)
         val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val target = min + (max - min) / 4
         try {
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-        } catch (_: SecurityException) {
-        }
-        try {
-            a2dpProxy?.connectedDevices?.firstOrNull()?.let { device ->
-                applyAbsoluteVolume(device, target)
-            }
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, min + (max - min) / 4, 0)
         } catch (_: SecurityException) {
         }
     }
@@ -274,12 +235,12 @@ class VolumeService : Service() {
         )
     }
 
-    private fun updateNotification(hasDevice: Boolean, absOk: Boolean = lastAbsOk) {
+    private fun updateNotification(hasDevice: Boolean) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, buildNotification(hasDevice, absOk))
+        manager.notify(NOTIFICATION_ID, buildNotification(hasDevice))
     }
 
-    private fun buildNotification(hasDevice: Boolean, absOk: Boolean = lastAbsOk): Notification {
+    private fun buildNotification(hasDevice: Boolean): Notification {
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -294,10 +255,10 @@ class VolumeService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val status = when {
-            !hasDevice -> getString(R.string.notif_waiting)
-            !absOk -> getString(R.string.notif_no_abs)
-            else -> getString(R.string.notif_active)
+        val status = if (hasDevice) {
+            getString(R.string.notif_active)
+        } else {
+            getString(R.string.notif_waiting)
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
