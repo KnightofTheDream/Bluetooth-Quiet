@@ -26,6 +26,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.lang.reflect.Method
 
 class VolumeService : Service() {
@@ -45,6 +46,7 @@ class VolumeService : Service() {
     private var a2dpProxy: BluetoothProfile? = null
     private var proxyConnected = false
     private var absMethod: Method? = null
+    private var lastAbsOk = true
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -96,6 +98,11 @@ class VolumeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        try {
+            HiddenApiBypass.addHiddenApiExemptions("L")
+        } catch (t: Throwable) {
+            Log.w(TAG, "hidden api bypass falló: ${t.message}")
+        }
         startForegroundInternal()
 
         bluetoothAdapter()?.getProfileProxy(this, profileListener, BluetoothProfile.A2DP)
@@ -173,6 +180,10 @@ class VolumeService : Service() {
         enforceStreamTarget(audible = absolute > 0)
 
         val applied = applyAbsoluteVolume(device, absolute)
+        if (lastAbsOk != applied) {
+            lastAbsOk = applied
+            updateNotification(device != null)
+        }
         if (!applied) {
             Log.w(TAG, "volumen absoluto no disponible ($reason); no se toca el volumen del sistema")
             enforceStreamTarget(audible = true)
@@ -263,12 +274,12 @@ class VolumeService : Service() {
         )
     }
 
-    private fun updateNotification(hasDevice: Boolean) {
+    private fun updateNotification(hasDevice: Boolean, absOk: Boolean = lastAbsOk) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, buildNotification(hasDevice))
+        manager.notify(NOTIFICATION_ID, buildNotification(hasDevice, absOk))
     }
 
-    private fun buildNotification(hasDevice: Boolean): Notification {
+    private fun buildNotification(hasDevice: Boolean, absOk: Boolean = lastAbsOk): Notification {
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -283,10 +294,10 @@ class VolumeService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val status = if (hasDevice) {
-            getString(R.string.notif_active)
-        } else {
-            getString(R.string.notif_waiting)
+        val status = when {
+            !hasDevice -> getString(R.string.notif_waiting)
+            !absOk -> getString(R.string.notif_no_abs)
+            else -> getString(R.string.notif_active)
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)

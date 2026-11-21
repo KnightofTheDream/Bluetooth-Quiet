@@ -10,5 +10,6 @@
     <string name="explanation">Cuando haya auriculares Bluetooth conectados, el volumen del móvil se mantiene al mínimo y los auriculares usan el nivel marcado en la barra, por debajo del mínimo del sistema. Sube o baja el volumen del móvil como siempre: la app lo volverá a ajustar.</string>
     <string name="notif_active">Activo · reduciendo volumen de los auriculares Bluetooth</string>
     <string name="notif_waiting">Activo · esperando auriculares Bluetooth</string>
+    <string name="notif_no_abs">Auriculares conectados · volumen absoluto no disponible en este móvil</string>
     <string name="notif_stop">Desactivar</string>
 </resources>
