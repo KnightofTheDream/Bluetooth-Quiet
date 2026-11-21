@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bluetooth Quiet</string>
+    <string name="channel_name">Servicio de volumen</string>
+    <string name="toggle_effect">Efecto activado</string>
+    <string name="status_off">Desactivado</string>
+    <string name="status_waiting">Activo · esperando auriculares Bluetooth…</string>
+    <string name="status_active">Activo · auriculares Bluetooth conectados</string>
+    <string name="volume_value">Volumen Bluetooth: 60%</string>
+    <string name="explanation">Cuando haya auriculares Bluetooth conectados, el volumen del móvil se mantiene al mínimo y los auriculares usan el nivel marcado en la barra, por debajo del mínimo del sistema. Sube o baja el volumen del móvil como siempre: la app lo volverá a ajustar.</string>
+    <string name="notif_active">Activo · reduciendo volumen de los auriculares Bluetooth</string>
+    <string name="notif_waiting">Activo · esperando auriculares Bluetooth</string>
+    <string name="notif_stop">Desactivar</string>
+</resources>
