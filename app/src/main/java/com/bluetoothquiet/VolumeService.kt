@@ -35,7 +35,7 @@ class VolumeService : Service() {
         const val ACTION_STOP = "com.bluetoothquiet.action.STOP"
         const val ACTION_APPLY = "com.bluetoothquiet.action.APPLY"
 
-        const val MAX_ABSOLUTE = 30
+        const val MAX_ABSOLUTE = 127
         const val CHANNEL_ID = "volume_service"
         const val NOTIFICATION_ID = 1
 
@@ -44,6 +44,8 @@ class VolumeService : Service() {
 
     private var a2dpProxy: BluetoothProfile? = null
     private var proxyConnected = false
+    private var absMethod: Method? = null
+    private var absAppliedOnce = false
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -77,6 +79,7 @@ class VolumeService : Service() {
             if (profile == BluetoothProfile.A2DP) {
                 a2dpProxy = proxy
                 proxyConnected = true
+                resolveAbsMethod(proxy)
                 tryApply("a2dp_proxy")
             }
         }
@@ -85,6 +88,7 @@ class VolumeService : Service() {
             if (profile == BluetoothProfile.A2DP) {
                 a2dpProxy = null
                 proxyConnected = false
+                absMethod = null
             }
         }
     }
@@ -137,6 +141,7 @@ class VolumeService : Service() {
         a2dpProxy?.let { bluetoothAdapter()?.closeProfileProxy(BluetoothProfile.A2DP, it) }
         a2dpProxy = null
         proxyConnected = false
+        absMethod = null
         super.onDestroy()
     }
 
@@ -165,6 +170,14 @@ class VolumeService : Service() {
         updateNotification(device != null)
         if (device == null) return
 
+        val absolute = ((Prefs.extraPercent(this) * MAX_ABSOLUTE) / 100f).toInt().coerceIn(0, MAX_ABSOLUTE)
+        val applied = applyAbsoluteVolume(device, absolute)
+        if (!applied) {
+            Log.w(TAG, "volumen absoluto no disponible ($reason); no se toca el volumen del sistema")
+            return
+        }
+        absAppliedOnce = true
+
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val min = am.getStreamMinVolume(AudioManager.STREAM_MUSIC)
         if (am.getStreamVolume(AudioManager.STREAM_MUSIC) > min) {
@@ -173,23 +186,40 @@ class VolumeService : Service() {
             } catch (_: SecurityException) {
             }
         }
-
-        val absolute = ((Prefs.extraPercent(this) * MAX_ABSOLUTE) / 100f).toInt().coerceIn(0, MAX_ABSOLUTE)
-        setAbsoluteVolume(device, absolute)
-        Log.d(TAG, "apply ($reason): stream=$min, absolute=$absolute")
+        Log.d(TAG, "apply ($reason): absolute=$absolute (0-$MAX_ABSOLUTE)")
     }
 
-    private fun setAbsoluteVolume(device: BluetoothDevice, absolute: Int) {
-        val proxy = a2dpProxy ?: return
-        try {
-            val method: Method = proxy.javaClass.getMethod(
-                "setAbsoluteVolume",
-                BluetoothDevice::class.java,
-                Int::class.javaPrimitiveType
-            )
-            method.invoke(proxy, device, absolute)
-        } catch (e: Exception) {
-            Log.w(TAG, "setAbsoluteVolume no disponible: ${e.message}")
+    private fun resolveAbsMethod(proxy: BluetoothProfile) {
+        absMethod = try {
+            proxy.javaClass.getMethod("setAvrcpAbsoluteVolume", Int::class.javaPrimitiveType)
+        } catch (_: NoSuchMethodException) {
+            try {
+                proxy.javaClass.getMethod(
+                    "setAbsoluteVolume",
+                    BluetoothDevice::class.java,
+                    Int::class.javaPrimitiveType
+                )
+            } catch (_: NoSuchMethodException) {
+                null
+            }
+        }
+        Log.i(TAG, "método absoluto: ${absMethod?.name ?: "ninguno"}")
+    }
+
+    private fun applyAbsoluteVolume(device: BluetoothDevice, absolute: Int): Boolean {
+        val proxy = a2dpProxy
+        val method = absMethod
+        if (proxy == null || method == null) return false
+        return try {
+            if (method.parameterCount >= 2) {
+                method.invoke(proxy, device, absolute)
+            } else {
+                method.invoke(proxy, absolute)
+            }
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "${method.name} falló: ${t.message}")
+            false
         }
     }
 
