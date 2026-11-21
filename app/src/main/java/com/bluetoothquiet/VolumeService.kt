@@ -36,7 +36,6 @@ class VolumeService : Service() {
         const val ACTION_STOP = "com.bluetoothquiet.action.STOP"
         const val ACTION_APPLY = "com.bluetoothquiet.action.APPLY"
 
-        const val MAX_ABSOLUTE = 127
         const val CHANNEL_ID = "volume_service"
         const val NOTIFICATION_ID = 1
 
@@ -176,10 +175,12 @@ class VolumeService : Service() {
         updateNotification(device != null)
         if (device == null) return
 
-        val absolute = ((Prefs.extraPercent(this) * MAX_ABSOLUTE) / 100f).toInt().coerceIn(0, MAX_ABSOLUTE)
-        enforceStreamTarget(audible = absolute > 0)
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val scale = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val deviceVolume = ((Prefs.extraPercent(this) * scale) / 100f).toInt().coerceIn(0, scale)
+        enforceStreamTarget(audible = deviceVolume > 0)
 
-        val applied = applyAbsoluteVolume(device, absolute)
+        val applied = applyAbsoluteVolume(device, deviceVolume)
         if (lastAbsOk != applied) {
             lastAbsOk = applied
             updateNotification(device != null)
@@ -189,7 +190,7 @@ class VolumeService : Service() {
             enforceStreamTarget(audible = true)
             return
         }
-        Log.d(TAG, "apply ($reason): absolute=$absolute (0-$MAX_ABSOLUTE)")
+        Log.d(TAG, "apply ($reason): deviceVolume=$deviceVolume (0-$scale)")
     }
 
     private fun enforceStreamTarget(audible: Boolean) {
@@ -249,8 +250,7 @@ class VolumeService : Service() {
         }
         try {
             a2dpProxy?.connectedDevices?.firstOrNull()?.let { device ->
-                val restore = ((target * MAX_ABSOLUTE) / max).coerceIn(0, MAX_ABSOLUTE)
-                applyAbsoluteVolume(device, restore)
+                applyAbsoluteVolume(device, target)
             }
         } catch (_: SecurityException) {
         }
