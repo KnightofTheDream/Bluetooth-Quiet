@@ -45,7 +45,6 @@ class VolumeService : Service() {
     private var a2dpProxy: BluetoothProfile? = null
     private var proxyConnected = false
     private var absMethod: Method? = null
-    private var absAppliedOnce = false
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -171,22 +170,27 @@ class VolumeService : Service() {
         if (device == null) return
 
         val absolute = ((Prefs.extraPercent(this) * MAX_ABSOLUTE) / 100f).toInt().coerceIn(0, MAX_ABSOLUTE)
+        enforceStreamTarget(audible = absolute > 0)
+
         val applied = applyAbsoluteVolume(device, absolute)
         if (!applied) {
             Log.w(TAG, "volumen absoluto no disponible ($reason); no se toca el volumen del sistema")
+            enforceStreamTarget(audible = true)
             return
         }
-        absAppliedOnce = true
+        Log.d(TAG, "apply ($reason): absolute=$absolute (0-$MAX_ABSOLUTE)")
+    }
 
+    private fun enforceStreamTarget(audible: Boolean) {
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val min = am.getStreamMinVolume(AudioManager.STREAM_MUSIC)
-        if (am.getStreamVolume(AudioManager.STREAM_MUSIC) > min) {
+        val target = if (audible) maxOf(min, 1) else min
+        if (am.getStreamVolume(AudioManager.STREAM_MUSIC) != target) {
             try {
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, min, 0)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
             } catch (_: SecurityException) {
             }
         }
-        Log.d(TAG, "apply ($reason): absolute=$absolute (0-$MAX_ABSOLUTE)")
     }
 
     private fun resolveAbsMethod(proxy: BluetoothProfile) {
@@ -226,12 +230,18 @@ class VolumeService : Service() {
     private fun stopEffect() {
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val min = am.getStreamMinVolume(AudioManager.STREAM_MUSIC)
-        if (am.getStreamVolume(AudioManager.STREAM_MUSIC) <= min) {
-            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            try {
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, min + (max - min) / 4, 0)
-            } catch (_: SecurityException) {
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val target = min + (max - min) / 4
+        try {
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+        } catch (_: SecurityException) {
+        }
+        try {
+            a2dpProxy?.connectedDevices?.firstOrNull()?.let { device ->
+                val restore = ((target * MAX_ABSOLUTE) / max).coerceIn(0, MAX_ABSOLUTE)
+                applyAbsoluteVolume(device, restore)
             }
+        } catch (_: SecurityException) {
         }
     }
 
