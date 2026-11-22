@@ -18,7 +18,7 @@ object Prefs {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    fun extraPercent(context: Context): Int = prefs(context).getInt(KEY_EXTRA_PERCENT, 60)
+    fun extraPercent(context: Context): Int = prefs(context).getInt(KEY_EXTRA_PERCENT, 0)
 
     fun setExtraPercent(context: Context, percent: Int) {
         prefs(context).edit().putInt(KEY_EXTRA_PERCENT, percent.coerceIn(0, 100)).apply()

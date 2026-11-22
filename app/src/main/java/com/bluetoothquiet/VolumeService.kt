@@ -36,7 +36,7 @@ class VolumeService : Service() {
         const val ACTION_STOP = "com.bluetoothquiet.action.STOP"
         const val ACTION_APPLY = "com.bluetoothquiet.action.APPLY"
 
-        const val DB_PER_PERCENT = 0.3f
+        const val MAX_REDUCTION_DB = 40.0f
         const val CHANNEL_ID = "volume_service"
         const val NOTIFICATION_ID = 1
 
@@ -173,10 +173,10 @@ class VolumeService : Service() {
         }
 
         val percent = Prefs.extraPercent(this)
-        enforceStreamTarget(audible = percent > 0)
-        val db = -(100 - percent) * DB_PER_PERCENT
+        enforceStreamTarget(audible = true)
+        val db = -(percent / 100f) * MAX_REDUCTION_DB
         setAttenuationDb(db)
-        Log.d(TAG, "apply ($reason): atenuación=%.1f dB".format(db))
+        Log.d(TAG, "apply ($reason): reducción=%.1f dB".format(db))
     }
 
     private fun enforceStreamTarget(audible: Boolean) {
@@ -256,7 +256,9 @@ class VolumeService : Service() {
         )
 
         val status = if (hasDevice) {
-            getString(R.string.notif_active)
+            val percent = Prefs.extraPercent(this)
+            val db = (percent / 100f) * MAX_REDUCTION_DB
+            getString(R.string.notif_active, percent, db)
         } else {
             getString(R.string.notif_waiting)
         }
