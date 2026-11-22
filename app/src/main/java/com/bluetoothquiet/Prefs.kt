@@ -8,6 +8,7 @@ object Prefs {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_EXTRA_PERCENT = "extra_percent"
     private const val KEY_WAS_RUNNING = "was_running"
+    private const val KEY_FILTER_STATE = "filter_state"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -28,5 +29,11 @@ object Prefs {
 
     fun setWasRunning(context: Context, running: Boolean) {
         prefs(context).edit().putBoolean(KEY_WAS_RUNNING, running).apply()
+    }
+
+    fun filterState(context: Context): String = prefs(context).getString(KEY_FILTER_STATE, "—") ?: "—"
+
+    fun setFilterState(context: Context, state: String) {
+        prefs(context).edit().putString(KEY_FILTER_STATE, state).apply()
     }
 }

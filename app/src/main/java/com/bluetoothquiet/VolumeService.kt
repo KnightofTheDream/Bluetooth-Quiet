@@ -18,6 +18,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.os.Handler
@@ -45,7 +46,8 @@ class VolumeService : Service() {
 
     private var a2dpProxy: BluetoothProfile? = null
     private var proxyConnected = false
-    private var enhancer: LoudnessEnhancer? = null
+    private var dp: DynamicsProcessing? = null
+    private var le: LoudnessEnhancer? = null
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -139,8 +141,10 @@ class VolumeService : Service() {
         a2dpProxy?.let { bluetoothAdapter()?.closeProfileProxy(BluetoothProfile.A2DP, it) }
         a2dpProxy = null
         proxyConnected = false
-        enhancer?.release()
-        enhancer = null
+        try { dp?.release() } catch (_: Throwable) {}
+        try { le?.release() } catch (_: Throwable) {}
+        dp = null
+        le = null
         super.onDestroy()
     }
 
@@ -192,18 +196,47 @@ class VolumeService : Service() {
     }
 
     private fun setAttenuationDb(db: Float) {
-        val e = enhancer ?: try {
-            LoudnessEnhancer(0)
+        val target = db.coerceIn(-MAX_REDUCTION_DB, 0f)
+        val applied = try {
+            val proc = dp ?: createDynamicsProcessing()
+            proc.setEnabled(true)
+            proc.setPostEqAllChannelsTo(
+                DynamicsProcessing.Eq(true, true, 1).apply {
+                    setBand(0, DynamicsProcessing.EqBand(true, 12000f, target))
+                }
+            )
+            dp = proc
+            "DynamicsProcessing · %.1f dB".format(target)
         } catch (t: Throwable) {
-            Log.w(TAG, "LoudnessEnhancer no disponible: ${t.message}")
-            null
-        } ?: return
-        enhancer = e
-        try {
-            e.setTargetGain((db * 100f).roundToInt())
-        } catch (t: Throwable) {
-            Log.w(TAG, "setTarget falló: ${t.message}")
+            dp = null
+            try {
+                val enh = le ?: LoudnessEnhancer(0)
+                enh.setEnabled(true)
+                enh.setTargetGain((target * 100f).roundToInt())
+                le = enh
+                "LoudnessEnhancer · %.1f dB".format(target)
+            } catch (t2: Throwable) {
+                le = null
+                "sin filtro (DP: ${t.javaClass.simpleName} / LE: ${t2.javaClass.simpleName})"
+            }
         }
+        Prefs.setFilterState(this, applied)
+        Log.i(TAG, "filtro: $applied")
+    }
+
+    private fun createDynamicsProcessing(): DynamicsProcessing {
+        return DynamicsProcessing(
+            0,
+            0,
+            DynamicsProcessing.Config.Builder(
+                DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
+                2,
+                false, 0,
+                false, 0,
+                true, 1,
+                false
+            ).build()
+        )
     }
 
     private fun stopEffect() {

@@ -8,6 +8,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +23,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var seekExtra: SeekBar
     private lateinit var textStatus: TextView
     private lateinit var textValue: TextView
+    private lateinit var textFilter: TextView
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+
+    private val filterRefresher = object : Runnable {
+        override fun run() {
+            updateFilterState()
+            uiHandler.postDelayed(this, 1000L)
+        }
+    }
 
     private val audioManager: AudioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -34,6 +46,7 @@ class MainActivity : AppCompatActivity() {
         seekExtra = findViewById(R.id.seekExtra)
         textStatus = findViewById(R.id.textStatus)
         textValue = findViewById(R.id.textValue)
+        textFilter = findViewById(R.id.textFilter)
 
         switchEffect.isChecked = Prefs.isEnabled(this)
         seekExtra.progress = Prefs.extraPercent(this)
@@ -72,6 +85,17 @@ class MainActivity : AppCompatActivity() {
             startEffect()
         }
         updateStatus()
+        updateFilterState()
+        uiHandler.postDelayed(filterRefresher, 1000L)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        uiHandler.removeCallbacks(filterRefresher)
+    }
+
+    private fun updateFilterState() {
+        textFilter.text = getString(R.string.filter_state, Prefs.filterState(this))
     }
 
     private fun updateValueLabel() {
